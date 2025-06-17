@@ -1,5 +1,22 @@
-readm.md
-.*.tar.gz
+# Ignorar arquivos e pastas temporárias
 *.log
+*.tar.gz
+*.bak
+*.swp
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+
+# Arquivos de instalação gerados ou cache
+setup.cfg
+*.egg-info/
+
+# Arquivos específicos ou acidentais
+readm.md
+.DS_Store
+Thumbs.db
