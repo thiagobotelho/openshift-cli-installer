@@ -27,7 +27,7 @@ def main():
     print("🔐 Configurando alias para `oc login`")
     oc_user = get_input("Informe o usuário do OpenShift (ex: kubeadmin)")
     oc_server = get_input("Informe o servidor (ex: https://api.cluster:6443)")
-    oc_alias = f"alias oc-login='oc login -u {oc_user} --server={oc_server}'"
+    oc_alias = f'alias oc-login="oc login -u {oc_user} --server={oc_server} --insecure-skip-tls-verify=true"'
 
     print("\n📦 Configurando alias para `skopeo login`")
     reg_user = get_input("Informe o usuário do registry")
@@ -41,7 +41,8 @@ def main():
         append_alias(aliases_file, skopeo_alias)
 
     print("\n🔁 Execute `source ~/.zsh_aliases` ou `source ~/.bash_aliases` para ativar os aliases.")
-    print("\n🚀 Executando oc-login automaticamente...")
+    print("\n🚀 Efetuando login no OpenShift diretamente...")
+    subprocess.run(f"oc login -u {oc_user} --server={oc_server}", shell=True)
 
     # Detecta shell e executa comando
     if zsh_aliases.exists():
