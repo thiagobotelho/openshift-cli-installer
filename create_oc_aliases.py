@@ -25,10 +25,15 @@ def append_alias(file_path, alias_line):
     print(f"✅ Alias adicionado em: {file_path}")
 
 def check_oc_connectivity(server_url):
+    import re
+    from urllib.parse import urlparse
+
+    parsed = urlparse(server_url)
+    host = parsed.hostname or ""
+    port = parsed.port or 6443  # default OpenShift API port
     try:
-        hostname = server_url.replace("https://", "").split(":")[0]
-        socket.create_connection((hostname, 443), timeout=5)
-        return True
+        with socket.create_connection((host, port), timeout=5):
+            return True
     except Exception:
         return False
 
