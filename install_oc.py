@@ -1,63 +1,61 @@
 #!/usr/bin/env python3
 
 import os
-import shutil
 import subprocess
-from pathlib import Path
 import urllib.request
+from pathlib import Path
 import tarfile
 
-OC_VERSION = "4.14.9"
-BASE_URL = f"https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{OC_VERSION}/openshift-client-linux-{OC_VERSION}.tar.gz"
-DEST_DIR = Path.home() / ".local/bin"
-BASH_COMPLETION_PATH = "/etc/bash_completion.d/oc"
-ZSH_COMPLETION_PATH = Path.home() / ".oh-my-zsh/completions/_oc"
+OC_VERSION = "4.8.0"
+DEST_DIR = str(Path.home() / ".local/bin")
+OC_TARBALL_URL = f"https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{OC_VERSION}/openshift-client-linux.tar.gz"
 
-def run(cmd: str):
-    print(f"⚙️ Executando: {cmd}")
+def run(cmd):
+    print(f"🚀 Executando: {cmd}")
     subprocess.run(cmd, shell=True, check=True)
 
 def download_and_extract():
-    print("⬇️ Baixando oc...")
-    os.makedirs("tmp_oc", exist_ok=True)
-    tar_path = "tmp_oc/oc.tar.gz"
-    urllib.request.urlretrieve(BASE_URL, tar_path)
-    with tarfile.open(tar_path) as tar:
-        tar.extractall(path="tmp_oc")
+    print("📥 Baixando e extraindo OC CLI...")
+    tmp_tar = "/tmp/oc.tar.gz"
+    urllib.request.urlretrieve(OC_TARBALL_URL, tmp_tar)
 
-def install_oc():
-    print("📦 Instalando oc no diretório local...")
-    DEST_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy("tmp_oc/oc", DEST_DIR / "oc")
-    shutil.copy("tmp_oc/kubectl", DEST_DIR / "kubectl")
-    run(f"chmod +x {DEST_DIR}/oc {DEST_DIR}/kubectl")
+    with tarfile.open(tmp_tar, "r:gz") as tar:
+        tar.extractall(path=DEST_DIR)
+    print(f"✅ Extraído para: {DEST_DIR}")
 
-def configure_path():
+def add_to_path():
+    print("🔧 Garantindo que ~/.local/bin esteja no PATH...")
+    export_line = f'export PATH="$PATH:{DEST_DIR}"\n'
     bashrc = Path.home() / ".bashrc"
     zshrc = Path.home() / ".zshrc"
-    export_line = f'export PATH="$PATH:{DEST_DIR}"\n'
+
     for rc in [bashrc, zshrc]:
         if rc.exists() and export_line.strip() not in rc.read_text():
             with open(rc, "a") as f:
-                f.write(f"
-{export_line}")
+                f.write(f"\n{export_line}")
+            print(f"✅ PATH atualizado em {rc.name}")
 
-def configure_completion():
+def setup_autocompletion():
     print("🔁 Configurando autocompletion...")
-    run(f"{DEST_DIR}/oc completion bash | sudo tee {BASH_COMPLETION_PATH} > /dev/null")
-    run(f"{DEST_DIR}/oc completion zsh > {ZSH_COMPLETION_PATH}")
-    print("✅ Autocompletion configurado.")
+    completion_cmd = f"{DEST_DIR}/oc completion"
+    if Path.home().joinpath(".zshrc").exists():
+        with open(Path.home() / ".zshrc", "a") as f:
+            f.write('\n# OpenShift CLI autocomplete\n')
+            f.write('source <(oc completion zsh)\n')
+    if Path.home().joinpath(".bashrc").exists():
+        with open(Path.home() / ".bashrc", "a") as f:
+            f.write('\n# OpenShift CLI autocomplete\n')
+            f.write('source <(oc completion bash)\n')
+
+def run_alias_script():
+    print("🔗 Executando script de aliases personalizados...")
+    alias_script_path = Path(__file__).parent / "create_oc_aliases.py"
+    subprocess.run(["python3", str(alias_script_path)], check=True)
 
 if __name__ == "__main__":
+    Path(DEST_DIR).mkdir(parents=True, exist_ok=True)
     download_and_extract()
-    install_oc()
-    configure_path()
-    configure_completion()
-    print("🎉 Instalação finalizada com sucesso.")
-
-# ✅ Geração de aliases personalizados para oc e skopeo
-print("\n🔗 Executando script de aliases personalizados para oc e skopeo...")
-alias_script_url = "https://raw.githubusercontent.com/thiagobotelho/openshift-cli-installer/main/create_oc_aliases.py"
-alias_script_path = "/tmp/create_oc_aliases.py"
-urllib.request.urlretrieve(alias_script_url, alias_script_path)
-subprocess.run(["python3", alias_script_path], check=True)
+    add_to_path()
+    setup_autocompletion()
+    run_alias_script()
+    print("\n✅ Instalação e configuração do OpenShift CLI concluídas com sucesso!")
