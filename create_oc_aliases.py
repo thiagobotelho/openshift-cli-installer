@@ -1,37 +1,37 @@
 #!/usr/bin/env python3
 
-import subprocess
+import os
 from pathlib import Path
 
-BASH_ALIASES = Path.home() / ".bash_aliases"
-ZSH_ALIASES = Path.home() / ".zsh_aliases"
+HOME = Path.home()
+zsh_aliases = HOME / ".zsh_aliases"
+bash_aliases = HOME / ".bash_aliases"
 
-def prompt_oc_login():
-    print("🔐 Configurando alias para oc login...")
-    user = input("Informe o usuário do OpenShift: ").strip()
-    server = input("Informe o endereço do servidor OpenShift: ").strip()
-    alias_oc = f"alias oc-login='oc login -u {user} --server={server}'\n"
-    return alias_oc
+def get_input(prompt):
+    return input(f"{prompt}: ").strip()
 
-def prompt_skopeo_login():
-    print("🔐 Configurando alias para skopeo login com token do oc...")
-    registry = input("Informe o endereço do registro container (registry): ").strip()
-    user = input("Informe o usuário do registro: ").strip()
-    alias_skopeo = f"alias skopeo-login='skopeo login -u {user} -p "$(oc whoami -t)" {registry}'\n"
-    return alias_skopeo
+def append_alias(file_path, alias_line):
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, "a") as f:
+        f.write(f"\n# Alias gerado automaticamente\n{alias_line}\n")
+    print(f"✅ Alias adicionado em: {file_path}")
 
-def append_aliases(alias_oc, alias_skopeo):
-    for aliases_file in [BASH_ALIASES, ZSH_ALIASES]:
-        with open(aliases_file, "a") as f:
-            f.write("
-# Aliases OpenShift
-")
-            f.write(alias_oc)
-            f.write(alias_skopeo)
-        print(f"✅ Aliases adicionados em: {aliases_file}")
+def main():
+    print("🔐 Configurando alias para `oc login`")
+    oc_user = get_input("Informe o usuário do OpenShift (ex: kubeadmin)")
+    oc_server = get_input("Informe o servidor (ex: https://api.cluster:6443)")
+    oc_alias = f'alias oc-login="oc login -u {oc_user} --server={oc_server}"'
+
+    print("\n📦 Configurando alias para `skopeo login`")
+    reg_user = get_input("Informe o usuário do registry")
+    reg_server = get_input("Informe o registry (ex: registry.redhat.io)")
+    skopeo_alias = f'alias skopeo-login="skopeo login -u {reg_user} -p \\"$(oc whoami -t)\\" {reg_server}"'
+
+    for aliases_file in [zsh_aliases, bash_aliases]:
+        append_alias(aliases_file, oc_alias)
+        append_alias(aliases_file, skopeo_alias)
+
+    print("\n🔁 Execute `source ~/.zsh_aliases` ou `source ~/.bash_aliases` para ativar os aliases.")
 
 if __name__ == "__main__":
-    alias_oc = prompt_oc_login()
-    alias_skopeo = prompt_skopeo_login()
-    append_aliases(alias_oc, alias_skopeo)
-    print("🎯 Finalizado. Reabra o terminal ou execute: source ~/.zsh_aliases ou ~/.bash_aliases")
+    main()
