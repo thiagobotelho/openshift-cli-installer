@@ -45,6 +45,7 @@ Durante a execução, serão solicitadas informações de login para criação d
 
 ```bash
 source ~/.zsh_aliases   # ou ~/.bash_aliases
+source ~/.zshrc         # ou ~/.bashrc
 oc-login                # Executa login no cluster
 skopeo-login            # Executa login no registry com token
 ```
