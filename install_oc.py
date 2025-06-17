@@ -54,6 +54,11 @@ def run_alias_script():
 
 if __name__ == "__main__":
     Path(DEST_DIR).mkdir(parents=True, exist_ok=True)
+ 
+    # Instalar dependências
+    print("📦 Instalando dependências...")
+    run("sudo dnf install -y skopeo")
+    
     download_and_extract()
     add_to_path()
     setup_autocompletion()
