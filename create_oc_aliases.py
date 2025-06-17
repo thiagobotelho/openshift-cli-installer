@@ -32,7 +32,7 @@ def main():
     print("\n📦 Configurando alias para `skopeo login`")
     reg_user = get_input("Informe o usuário do registry")
     reg_server = get_input("Informe o registry (ex: registry.redhat.io)")
-    skopeo_alias = f"alias skopeo-login='skopeo login -u {reg_user} -p \"$(oc whoami -t)\" {reg_server}'"
+    skopeo_alias = f'alias skopeo-login="skopeo login -u {reg_user} -p \"$(oc whoami -t)\" {reg_server} --insecure-skip-tls-verify=true"'
 
     for aliases_file in [zsh_aliases, bash_aliases]:
         remove_old_alias(aliases_file, "oc-login")
