@@ -2,6 +2,7 @@
 
 import subprocess
 from pathlib import Path
+import socket
 
 HOME = Path.home()
 zsh_aliases = HOME / ".zsh_aliases"
@@ -23,6 +24,14 @@ def append_alias(file_path, alias_line):
         f.write(f"\n# Alias gerado automaticamente\n{alias_line}\n")
     print(f"✅ Alias adicionado em: {file_path}")
 
+def check_oc_connectivity(server_url):
+    try:
+        hostname = server_url.replace("https://", "").split(":")[0]
+        socket.create_connection((hostname, 443), timeout=5)
+        return True
+    except Exception:
+        return False
+
 def main():
     print("🔐 Configurando alias para `oc login`")
     oc_user = get_input("Informe o usuário do OpenShift (ex: kubeadmin)")
@@ -32,7 +41,7 @@ def main():
     print("\n📦 Configurando alias para `skopeo login`")
     reg_user = get_input("Informe o usuário do registry")
     reg_server = get_input("Informe o registry (ex: registry.redhat.io)")
-    skopeo_alias = f'alias skopeo-login="skopeo login --tls-verify=false -u {reg_user} -p \"$(oc whoami -t)\" {reg_server}"'
+    skopeo_alias = f'alias skopeo-login="skopeo login --tls-verify=false -u {reg_user} -p \\"$(oc whoami -t)\\" {reg_server}"'
 
     for aliases_file in [zsh_aliases, bash_aliases]:
         remove_old_alias(aliases_file, "oc-login")
@@ -41,14 +50,13 @@ def main():
         append_alias(aliases_file, skopeo_alias)
 
     print("\n🔁 Execute `source ~/.zsh_aliases` ou `source ~/.bash_aliases` para ativar os aliases.")
-    print("\n🚀 Efetuando login no OpenShift diretamente...")
-    subprocess.run(f"oc login -u {oc_user} --server={oc_server}", shell=True)
 
-    # Detecta shell e executa comando
-    if zsh_aliases.exists():
-        subprocess.run("zsh -c 'source ~/.zsh_aliases && oc-login'", shell=True)
+    print("\n🚀 Efetuando login direto no OpenShift...")
+
+    if check_oc_connectivity(oc_server):
+        subprocess.run(f'oc login -u {oc_user} --server={oc_server} --insecure-skip-tls-verify=true', shell=True)
     else:
-        subprocess.run("bash -c 'source ~/.bash_aliases && oc-login'", shell=True)
+        print("❌ Não foi possível conectar ao servidor. Verifique se o cluster está acessível.")
 
 if __name__ == "__main__":
     main()
