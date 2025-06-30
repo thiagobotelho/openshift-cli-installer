@@ -5,62 +5,114 @@ import subprocess
 import urllib.request
 from pathlib import Path
 import tarfile
+import shutil
+import json
 
-OC_VERSION = "4.8.0"
 DEST_DIR = str(Path.home() / ".local/bin")
-OC_TARBALL_URL = f"https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{OC_VERSION}/openshift-client-linux.tar.gz"
+OC_VERSION = "4.8.0"
+OC_URL = f"https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{OC_VERSION}/openshift-client-linux.tar.gz"
+KUBECTL_URL = "https://dl.k8s.io/release/stable.txt"
+ARGOCD_URL = "https://api.github.com/repos/argoproj/argo-cd/releases/latest"
 
 def run(cmd):
     print(f"🚀 Executando: {cmd}")
     subprocess.run(cmd, shell=True, check=True)
 
-def download_and_extract():
-    print("📥 Baixando e extraindo OC CLI...")
-    tmp_tar = "/tmp/oc.tar.gz"
-    urllib.request.urlretrieve(OC_TARBALL_URL, tmp_tar)
+def download_file(url, dest):
+    print(f"📥 Baixando: {url}")
+    urllib.request.urlretrieve(url, dest)
 
-    with tarfile.open(tmp_tar, "r:gz") as tar:
-        tar.extractall(path=DEST_DIR)
-    print(f"✅ Extraído para: {DEST_DIR}")
+def extract_tar_gz(file_path, extract_to):
+    print(f"📦 Extraindo: {file_path}")
+    with tarfile.open(file_path, "r:gz") as tar:
+        tar.extractall(path=extract_to)
 
-def add_to_path():
-    print("🔧 Garantindo que ~/.local/bin esteja no PATH...")
+def ensure_path():
     export_line = f'export PATH="$PATH:{DEST_DIR}"\n'
-    bashrc = Path.home() / ".bashrc"
-    zshrc = Path.home() / ".zshrc"
-
-    for rc in [bashrc, zshrc]:
-        if rc.exists() and export_line.strip() not in rc.read_text():
-            with open(rc, "a") as f:
+    for shell_rc in [".bashrc", ".zshrc"]:
+        rc_path = Path.home() / shell_rc
+        if rc_path.exists() and export_line.strip() not in rc_path.read_text():
+            with open(rc_path, "a") as f:
                 f.write(f"\n{export_line}")
-            print(f"✅ PATH atualizado em {rc.name}")
+            print(f"✅ PATH atualizado em {rc_path.name}")
+
+def install_oc():
+    if shutil.which("oc"):
+        print("🆗 oc já está instalado.")
+        return
+    tmp_file = "/tmp/oc.tar.gz"
+    download_file(OC_URL, tmp_file)
+    extract_tar_gz(tmp_file, DEST_DIR)
+
+def install_kubectl():
+    if shutil.which("kubectl"):
+        print("🆗 kubectl já está instalado.")
+        return
+    version = urllib.request.urlopen(KUBECTL_URL).read().decode().strip()
+    url = f"https://dl.k8s.io/release/{version}/bin/linux/amd64/kubectl"
+    dest = Path(DEST_DIR) / "kubectl"
+    download_file(url, dest)
+    os.chmod(dest, 0o755)
+
+def install_argocd():
+    if shutil.which("argocd"):
+        print("🆗 argocd já está instalado.")
+        return
+    response = urllib.request.urlopen(ARGOCD_URL)
+    data = json.loads(response.read())
+    version = data["tag_name"]
+    url = f"https://github.com/argoproj/argo-cd/releases/download/{version}/argocd-linux-amd64"
+    dest = Path(DEST_DIR) / "argocd"
+    download_file(url, dest)
+    os.chmod(dest, 0o755)
 
 def setup_autocompletion():
-    print("🔁 Configurando autocompletion...")
-    completion_cmd = f"{DEST_DIR}/oc completion"
-    if Path.home().joinpath(".zshrc").exists():
-        with open(Path.home() / ".zshrc", "a") as f:
-            f.write('\n# OpenShift CLI autocomplete\n')
-            f.write('source <(oc completion zsh)\n')
-    if Path.home().joinpath(".bashrc").exists():
-        with open(Path.home() / ".bashrc", "a") as f:
-            f.write('\n# OpenShift CLI autocomplete\n')
-            f.write('source <(oc completion bash)\n')
+    print("🔁 Configurando autocompletion para oc, kubectl e argocd...")
+
+    shells = {"bash": ".bashrc", "zsh": ".zshrc"}
+    for cli in ["oc", "kubectl", "argocd"]:
+        binary_path = Path(DEST_DIR) / cli
+        if not binary_path.exists():
+            print(f"⚠️  {cli} não encontrado, pulando autocomplete.")
+            continue
+
+        for shell, rc_file in shells.items():
+            rc_path = Path.home() / rc_file
+            if not rc_path.exists():
+                continue
+
+            line_to_add = f"source <({cli} completion {shell})"
+            tag = f"# Autocomplete {cli}"
+            content = rc_path.read_text()
+
+            if line_to_add in content:
+                print(f"🆗 Autocomplete de {cli} já configurado em {rc_file}.")
+                continue
+
+            with open(rc_path, "a") as f:
+                f.write(f"\n{tag}\n{line_to_add}\n")
+                print(f"✅ Autocomplete de {cli} adicionado em {rc_file}.")
+
+def install_dependencies():
+    print("📦 Instalando dependências de sistema...")
+    run("sudo dnf install -y skopeo")
 
 def run_alias_script():
     print("🔗 Executando script de aliases personalizados...")
-    alias_script_path = Path(__file__).parent / "create_oc_aliases.py"
-    subprocess.run(["python3", str(alias_script_path)], check=True)
+    alias_script = Path(__file__).parent / "create_oc_aliases.py"
+    if alias_script.exists():
+        subprocess.run(["python3", str(alias_script)], check=True)
 
-if __name__ == "__main__":
+def main():
     Path(DEST_DIR).mkdir(parents=True, exist_ok=True)
- 
-    # Instalar dependências
-    print("📦 Instalando dependências...")
-    run("sudo dnf install -y skopeo")
-    
-    download_and_extract()
-    add_to_path()
+    install_dependencies()
+    install_oc()
+    install_kubectl()
+    install_argocd()
+    ensure_path()
     setup_autocompletion()
     run_alias_script()
-    print("\n✅ Instalação e configuração do OpenShift CLI concluídas com sucesso!")
+    print("\n✅ Todas as ferramentas foram instaladas e configuradas com sucesso!")
+
+if __name__ == "__main__":
+    main()
