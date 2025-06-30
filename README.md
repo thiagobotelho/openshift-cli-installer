@@ -1,18 +1,21 @@
 # 🔧 openshift-cli-installer
 
-Script automatizado em Python para instalar o OpenShift CLI (`oc`) no Fedora, com suporte completo a autocompletion e criação de aliases personalizados.
+Script automatizado em Python para instalar os CLIs `oc`, `kubectl` e `argocd` no Fedora, com suporte completo a **autocompletion**, aliases personalizados e configuração de ambiente.
 
-📚 Baseado na [documentação oficial da Red Hat](https://docs.redhat.com/en/documentation/openshift_container_platform/4.8/html/cli_tools/openshift-cli-oc).
+📚 Baseado na [documentação oficial da Red Hat](https://docs.redhat.com/en/documentation/openshift_container_platform/4.8/html/cli_tools/openshift-cli-oc) e nas práticas recomendadas de instalação dos binários do Kubernetes e Argo CD.
 
 ---
 
 ## ✅ Funcionalidades
 
-- Instalação automatizada do `oc` na versão desejada
-- Autocompletion para bash e zsh
+- Instalação automatizada de:
+  - `oc` (OpenShift CLI) – versão definida no script
+  - `kubectl` – última versão estável
+  - `argocd` – última versão disponível via GitHub
+- Autocompletion para `bash` e `zsh`, com verificação de duplicidade
 - Criação de aliases personalizados:
-  - `oc-login`: login no cluster com usuário/servidor
-  - `skopeo-login`: login no registry com token do `oc whoami -t`
+  - `oc-login`: login no cluster com `oc`
+  - `skopeo-login`: login no registry com token (`oc whoami -t`)
 
 ---
 
@@ -20,15 +23,15 @@ Script automatizado em Python para instalar o OpenShift CLI (`oc`) no Fedora, co
 
 - Fedora 38 ou superior
 - Python 3.x
-- curl, tar, sudo
+- Dependências: `curl`, `tar`, `sudo`, `dnf`, `python3`, `jq` (para debug)
+- Internet para download dos binários
 
 ---
 
 ## 🚀 Como usar
 
 ```bash
-python3 install_oc.py
-```
+python3 install_oc_kubectl_argocd.py
 
 Durante a execução, serão solicitadas informações de login para criação dos aliases.
 
