@@ -31,7 +31,7 @@ Script automatizado em Python para instalar os CLIs `oc`, `kubectl` e `argocd` n
 ## 🚀 Como usar
 
 ```bash
-python3 install_oc_kubectl_argocd.py
+python3 install.py
 ```
 
 Durante a execução, serão solicitadas informações de login para criação dos aliases.
@@ -40,7 +40,7 @@ Durante a execução, serão solicitadas informações de login para criação d
 
 ## 📁 Estrutura
 
-- `install_oc.py`: script principal de instalação e configuração
+- `install.py`: script principal de instalação e configuração
 - `create_oc_aliases.py`: gerado e executado automaticamente ao final, adiciona aliases em `~/.zsh_aliases` e `~/.bash_aliases`
 
 ---
