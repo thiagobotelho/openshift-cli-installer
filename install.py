@@ -9,7 +9,8 @@ import shutil
 import json
 
 DEST_DIR = str(Path.home() / ".local/bin")
-os.environ["PATH"] += os.pathsep + DEST_DIR  # Atualiza PATH na execução do script
+ZSH_COMPLETIONS_DIR = Path.home() / ".zsh/completions"
+os.environ["PATH"] += os.pathsep + DEST_DIR
 
 OC_VERSION = "4.8.0"
 OC_URL = f"https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{OC_VERSION}/openshift-client-linux.tar.gz"
@@ -50,24 +51,18 @@ def install_oc():
     download_file(OC_URL, tmp_file)
     extract_tar_gz(tmp_file, extract_dir)
 
-    oc_src = Path(extract_dir) / "oc"
-    kubectl_src = Path(extract_dir) / "kubectl"
-    oc_dest = Path(DEST_DIR) / "oc"
-    kubectl_dest = Path(DEST_DIR) / "kubectl"
+    for bin_name in ["oc", "kubectl"]:
+        src = Path(extract_dir) / bin_name
+        dest = Path(DEST_DIR) / bin_name
+        if src.exists():
+            if dest.exists():
+                dest.unlink()
+            shutil.move(str(src), str(dest))
+            os.chmod(dest, 0o755)
+            print(f"✅ Binário '{bin_name}' instalado.")
 
-    if oc_src.exists():
-        if oc_dest.exists():
-            oc_dest.unlink()
-        shutil.move(str(oc_src), str(oc_dest))
-        os.chmod(oc_dest, 0o755)
-        print("✅ Binário 'oc' instalado.")
-
-    if kubectl_src.exists():
-        if kubectl_dest.exists():
-            kubectl_dest.unlink()
-        shutil.move(str(kubectl_src), str(kubectl_dest))
-        os.chmod(kubectl_dest, 0o755)
-        print("✅ Binário 'kubectl' instalado.")
+    shutil.rmtree(extract_dir, ignore_errors=True)
+    os.remove(tmp_file)
 
 def install_kubectl():
     if shutil.which("kubectl"):
@@ -78,6 +73,7 @@ def install_kubectl():
     dest = Path(DEST_DIR) / "kubectl"
     download_file(url, dest)
     os.chmod(dest, 0o755)
+    print("✅ kubectl instalado.")
 
 def install_argocd():
     if shutil.which("argocd"):
@@ -90,33 +86,38 @@ def install_argocd():
     dest = Path(DEST_DIR) / "argocd"
     download_file(url, dest)
     os.chmod(dest, 0o755)
+    print("✅ argocd instalado.")
 
 def setup_autocompletion():
-    print("🔁 Configurando autocompletion para oc, kubectl e argocd...")
+    print("🔁 Configurando autocompletion (Zsh)...")
+    ZSH_COMPLETIONS_DIR.mkdir(parents=True, exist_ok=True)
+    completions = {
+        "oc": "oc completion zsh",
+        "kubectl": "kubectl completion zsh",
+        "argocd": "argocd completion zsh"
+    }
 
-    shells = {"bash": ".bashrc", "zsh": ".zshrc"}
-    for cli in ["oc", "kubectl", "argocd"]:
-        binary_path = Path(DEST_DIR) / cli
-        if not binary_path.exists():
+    for cli, cmd in completions.items():
+        bin_path = Path(DEST_DIR) / cli
+        if not bin_path.exists():
             print(f"⚠️  {cli} não encontrado, pulando autocomplete.")
             continue
+        dest_file = ZSH_COMPLETIONS_DIR / f"_{cli}"
+        with open(dest_file, "w") as f:
+            subprocess.run(cmd.split(), stdout=f, check=True, env=os.environ)
+            print(f"✅ Completion de {cli} gerado em {dest_file}")
 
-        for shell, rc_file in shells.items():
-            rc_path = Path.home() / rc_file
-            if not rc_path.exists():
-                continue
-
-            line_to_add = f"source <({cli} completion {shell})"
-            tag = f"# Autocomplete {cli}"
-            content = rc_path.read_text()
-
-            if line_to_add in content:
-                print(f"🆗 Autocomplete de {cli} já configurado em {rc_file}.")
-                continue
-
-            with open(rc_path, "a") as f:
-                f.write(f"\n{tag}\n{line_to_add}\n")
-                print(f"✅ Autocomplete de {cli} adicionado em {rc_file}.")
+    # Adiciona fpath no .zshrc se necessário
+    zshrc = Path.home() / ".zshrc"
+    fpath_line = 'fpath=(~/.zsh/completions $fpath)'
+    marker = "# Autocomplete completions"
+    content = zshrc.read_text()
+    if fpath_line not in content:
+        with open(zshrc, "a") as f:
+            f.write(f"\n{marker}\n{fpath_line}\nautoload -Uz compinit\ncompinit\n")
+        print("✅ .zshrc atualizado com fpath e compinit.")
+    else:
+        print("🆗 fpath já configurado no .zshrc.")
 
 def install_dependencies():
     print("📦 Instalando dependências de sistema...")
