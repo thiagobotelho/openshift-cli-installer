@@ -41,12 +41,13 @@ def main():
     print("🔐 Configurando alias para `oc login`")
     oc_user = get_input("Informe o usuário do OpenShift (ex: kubeadmin)")
     oc_server = get_input("Informe o servidor (ex: https://api.cluster:6443)")
-    oc_alias = f'alias oc-login="oc login -u {oc_user} --server={oc_server} --insecure-skip-tls-verify=true"'
+    oc_path = str(Path.home() / ".local/bin/oc")
+    oc_alias = f'alias oc-login="{oc_path} login -u {oc_user} --server={oc_server} --insecure-skip-tls-verify=true"'
 
     print("\n📦 Configurando alias para `skopeo login`")
     reg_user = get_input("Informe o usuário do registry")
     reg_server = get_input("Informe o registry (ex: registry.redhat.io)")
-    skopeo_alias = f'alias skopeo-login="skopeo login --tls-verify=false -u {reg_user} -p \\"$(oc whoami -t)\\" {reg_server}"'
+    skopeo_alias = f'alias skopeo-login="skopeo login --tls-verify=false -u {reg_user} -p \\"$({oc_path} whoami -t)\\" {reg_server}"'
 
     for aliases_file in [zsh_aliases, bash_aliases]:
         remove_old_alias(aliases_file, "oc-login")
@@ -59,7 +60,7 @@ def main():
     print("\n🚀 Efetuando login direto no OpenShift...")
 
     if check_oc_connectivity(oc_server):
-        subprocess.run(f'oc login -u {oc_user} --server={oc_server} --insecure-skip-tls-verify=true', shell=True)
+        subprocess.run(f'{oc_path} login -u {oc_user} --server={oc_server} --insecure-skip-tls-verify=true', shell=True)
     else:
         print("❌ Não foi possível conectar ao servidor. Verifique se o cluster está acessível.")
 
