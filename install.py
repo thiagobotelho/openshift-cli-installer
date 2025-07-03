@@ -9,6 +9,8 @@ import shutil
 import json
 
 DEST_DIR = str(Path.home() / ".local/bin")
+os.environ["PATH"] += os.pathsep + DEST_DIR  # Atualiza PATH na execução do script
+
 OC_VERSION = "4.8.0"
 OC_URL = f"https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{OC_VERSION}/openshift-client-linux.tar.gz"
 KUBECTL_URL = "https://dl.k8s.io/release/stable.txt"
@@ -16,7 +18,7 @@ ARGOCD_URL = "https://api.github.com/repos/argoproj/argo-cd/releases/latest"
 
 def run(cmd):
     print(f"🚀 Executando: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(cmd, shell=True, check=True, env=os.environ)
 
 def download_file(url, dest):
     print(f"📥 Baixando: {url}")
@@ -34,7 +36,7 @@ def ensure_path():
         if rc_path.exists() and export_line.strip() not in rc_path.read_text():
             with open(rc_path, "a") as f:
                 f.write(f"\n{export_line}")
-            print(f"✅ PATH atualizado em {rc_path.name}")
+            print(f"✅ PATH persistente atualizado em {rc_path.name}")
 
 def install_oc():
     if shutil.which("oc"):
@@ -43,6 +45,8 @@ def install_oc():
     tmp_file = "/tmp/oc.tar.gz"
     download_file(OC_URL, tmp_file)
     extract_tar_gz(tmp_file, DEST_DIR)
+    os.chmod(Path(DEST_DIR) / "oc", 0o755)
+    os.chmod(Path(DEST_DIR) / "kubectl", 0o755)
 
 def install_kubectl():
     if shutil.which("kubectl"):
@@ -101,7 +105,7 @@ def run_alias_script():
     print("🔗 Executando script de aliases personalizados...")
     alias_script = Path(__file__).parent / "create_oc_aliases.py"
     if alias_script.exists():
-        subprocess.run(["python3", str(alias_script)], check=True)
+        subprocess.run(["python3", str(alias_script)], check=True, env=os.environ)
 
 def main():
     Path(DEST_DIR).mkdir(parents=True, exist_ok=True)
@@ -112,7 +116,8 @@ def main():
     ensure_path()
     setup_autocompletion()
     run_alias_script()
-    print("\n✅ Todas as ferramentas foram instaladas e configuradas com sucesso!")
+    print(f"\n🔎 Verificação final: oc está em {shutil.which('oc')}")
+    print("✅ Todas as ferramentas foram instaladas e configuradas com sucesso!")
 
 if __name__ == "__main__":
     main()
