@@ -42,11 +42,32 @@ def install_oc():
     if shutil.which("oc"):
         print("🆗 oc já está instalado.")
         return
+
     tmp_file = "/tmp/oc.tar.gz"
+    extract_dir = "/tmp/oc-extract"
+    Path(extract_dir).mkdir(parents=True, exist_ok=True)
+
     download_file(OC_URL, tmp_file)
-    extract_tar_gz(tmp_file, DEST_DIR)
-    os.chmod(Path(DEST_DIR) / "oc", 0o755)
-    os.chmod(Path(DEST_DIR) / "kubectl", 0o755)
+    extract_tar_gz(tmp_file, extract_dir)
+
+    oc_src = Path(extract_dir) / "oc"
+    kubectl_src = Path(extract_dir) / "kubectl"
+    oc_dest = Path(DEST_DIR) / "oc"
+    kubectl_dest = Path(DEST_DIR) / "kubectl"
+
+    if oc_src.exists():
+        if oc_dest.exists():
+            oc_dest.unlink()
+        shutil.move(str(oc_src), str(oc_dest))
+        os.chmod(oc_dest, 0o755)
+        print("✅ Binário 'oc' instalado.")
+
+    if kubectl_src.exists():
+        if kubectl_dest.exists():
+            kubectl_dest.unlink()
+        shutil.move(str(kubectl_src), str(kubectl_dest))
+        os.chmod(kubectl_dest, 0o755)
+        print("✅ Binário 'kubectl' instalado.")
 
 def install_kubectl():
     if shutil.which("kubectl"):
