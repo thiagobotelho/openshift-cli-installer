@@ -92,31 +92,64 @@ def install_argocd():
     os.chmod(dest, 0o755)
 
 def setup_autocompletion():
-    print("🔁 Configurando autocompletion para oc, kubectl e argocd...")
+    print("🔁 Configurando autocompletion com arquivos físicos e dinâmicos...")
 
-    shells = {"bash": ".bashrc", "zsh": ".zshrc"}
-    for cli in ["oc", "kubectl", "argocd"]:
-        binary_path = Path(DEST_DIR) / cli
-        if not binary_path.exists():
+    completions_dir = Path.home() / ".zsh/completions"
+    completions_dir.mkdir(parents=True, exist_ok=True)
+
+    completions = {
+        "oc": "oc completion zsh",
+        "kubectl": "kubectl completion zsh",
+        "argocd": "argocd completion zsh"
+    }
+
+    for cli, cmd in completions.items():
+        cli_path = Path(DEST_DIR) / cli
+        if not cli_path.exists():
             print(f"⚠️  {cli} não encontrado, pulando autocomplete.")
             continue
+        # Gera completions para Zsh
+        target = completions_dir / f"_{cli}"
+        with open(target, "w") as f:
+            subprocess.run(cmd.split(), stdout=f, check=True, env=os.environ)
+        print(f"✅ Completion de {cli} gerado em {target}")
 
-        for shell, rc_file in shells.items():
-            rc_path = Path.home() / rc_file
-            if not rc_path.exists():
-                continue
+    # Atualiza .zshrc
+    zshrc = Path.home() / ".zshrc"
+    zsh_lines = [
+        'export PATH="$HOME/.local/bin:$PATH"',
+        'fpath=(~/.zsh/completions $fpath)',
+        'autoload -Uz compinit',
+        'compinit',
+        'autoload -Uz _oc', 'compdef _oc oc',
+        'autoload -Uz _kubectl', 'compdef _kubectl kubectl',
+        'autoload -Uz _argocd', 'compdef _argocd argocd',
+    ]
+    content_zsh = zshrc.read_text()
+    for line in zsh_lines:
+        if line not in content_zsh:
+            with open(zshrc, "a") as f:
+                f.write(f"\n{line}")
+            print(f"✅ Adicionado ao .zshrc: {line}")
+        else:
+            print(f"🆗 Já presente no .zshrc: {line}")
 
-            line_to_add = f"source <({cli} completion {shell})"
-            tag = f"# Autocomplete {cli}"
-            content = rc_path.read_text()
-
-            if line_to_add in content:
-                print(f"🆗 Autocomplete de {cli} já configurado em {rc_file}.")
-                continue
-
-            with open(rc_path, "a") as f:
-                f.write(f"\n{tag}\n{line_to_add}\n")
-                print(f"✅ Autocomplete de {cli} adicionado em {rc_file}.")
+    # Atualiza .bashrc com autocompletes dinâmicos
+    bashrc = Path.home() / ".bashrc"
+    bash_lines = [
+        'export PATH="$HOME/.local/bin:$PATH"',
+        'source <(oc completion bash)',
+        'source <(kubectl completion bash)',
+        'source <(argocd completion bash)',
+    ]
+    content_bash = bashrc.read_text()
+    for line in bash_lines:
+        if line not in content_bash:
+            with open(bashrc, "a") as f:
+                f.write(f"\n{line}")
+            print(f"✅ Adicionado ao .bashrc: {line}")
+        else:
+            print(f"🆗 Já presente no .bashrc: {line}")
 
 def install_dependencies():
     print("📦 Instalando dependências de sistema...")
