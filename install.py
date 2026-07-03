@@ -4,6 +4,8 @@
 import os
 import re
 import json
+import shlex
+import argparse
 import tarfile
 import shutil
 import hashlib
@@ -19,23 +21,31 @@ from typing import Optional, List, Tuple
 # Configuração base
 # =========================
 DEST_DIR = str(Path.home() / ".local" / "bin")
-os.environ["PATH"] += os.pathsep + DEST_DIR  # garante PATH em runtime
+NATIVE_PATH = f"{DEST_DIR}:{Path.home() / 'bin'}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+os.environ["PATH"] = NATIVE_PATH + os.pathsep + os.environ.get("PATH", "")
+ROOT_DIR = Path(__file__).resolve().parent
+LOCK = json.loads((ROOT_DIR / "versions.lock.json").read_text())
+DRY_RUN = False
 
-# Pinagens por ambiente (podem ser "latest" ou versões específicas)
-OC_VERSION         = os.getenv("OC_VERSION", "latest")              # ex: "latest" ou "4.19.11"
-KUBECTL_VERSION    = os.getenv("KUBECTL_VERSION", "latest")         # ex: "latest" ou "v1.34.1"
-ARGOCD_VERSION     = os.getenv("ARGOCD_VERSION", "latest")          # ex: "latest" ou "v3.1.5"
-HELM_VERSION       = os.getenv("HELM_VERSION", "latest")            # ex: "latest" ou "v3.15.3"
-TKN_VERSION        = os.getenv("TKN_VERSION", "latest")             # ex: "latest" ou "v0.37.0"
-CLUSTERADM_VERSION = os.getenv("CLUSTERADM_VERSION", "latest")      # ex: "latest" ou "v0.6.2"
-ROXCTL_VERSION     = os.getenv("ROXCTL_VERSION", "latest")          # "latest" (mirror) ou versão específica do seu ACS
+# O lockfile é o padrão reproduzível; variáveis de ambiente continuam suportadas.
+OC_VERSION         = os.getenv("OC_VERSION", LOCK["tools"]["oc"])
+KUBECTL_VERSION    = os.getenv("KUBECTL_VERSION", LOCK["tools"]["kubectl"])
+ARGOCD_VERSION     = os.getenv("ARGOCD_VERSION", LOCK["tools"]["argocd"])
+HELM_VERSION       = os.getenv("HELM_VERSION", LOCK["tools"]["helm"])
+TKN_VERSION        = os.getenv("TKN_VERSION", LOCK["tools"]["tkn"])
+CLUSTERADM_VERSION = os.getenv("CLUSTERADM_VERSION", LOCK["tools"]["clusteradm"])
+ROXCTL_VERSION     = os.getenv("ROXCTL_VERSION", LOCK["tools"]["roxctl"])
+YQ_VERSION         = os.getenv("YQ_VERSION", LOCK["tools"]["yq"])
 
 # =========================
 # Utilitários
 # =========================
-def run(cmd: str):
-    print(f"🚀 Executando: {cmd}")
-    subprocess.run(cmd, shell=True, check=True, env=os.environ)
+def run(cmd: str | list[str]):
+    args = shlex.split(cmd) if isinstance(cmd, str) else [str(item) for item in cmd]
+    print(f"🚀 Executando: {shlex.join(args)}")
+    if DRY_RUN:
+        return subprocess.CompletedProcess(args, 0)
+    return subprocess.run(args, check=True, env=os.environ)
 
 def download_file(url: str, dest_path: Path | str):
     dest_path = str(dest_path)
@@ -61,20 +71,34 @@ def _detect_arch() -> str:
         return "arm64"
     return "amd64"
 
+def _is_wsl() -> bool:
+    try:
+        release = Path("/proc/sys/kernel/osrelease").read_text().lower()
+    except OSError:
+        release = ""
+    return "microsoft" in release or bool(os.environ.get("WSL_DISTRO_NAME"))
+
 def _safe_extract_tar_gz(file_path: Path, extract_to: Path):
-    # Compatível com Python 3.13/3.14: filter(member, path)
     with tarfile.open(file_path, "r:gz") as tar:
-        def _safe(member: tarfile.TarInfo, path):
-            base = Path(path).resolve()
+        base = extract_to.resolve()
+        for member in tar.getmembers():
             target = (base / member.name).resolve()
-            if not str(target).startswith(str(base)):
-                raise Exception(f"Entrada suspeita no tar: {member.name}")
+            if base != target and base not in target.parents:
+                raise RuntimeError(f"Entrada suspeita no tar: {member.name}")
             if member.issym() or member.islnk():
-                link_target = (base / (member.linkname or "")).resolve()
-                if not str(link_target).startswith(str(base)):
-                    raise Exception(f"Link suspeito fora do destino: {member.name} -> {member.linkname}")
-            return member
-        tar.extractall(path=extract_to, filter=_safe)
+                raise RuntimeError(f"Links não são permitidos no tar: {member.name}")
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                continue
+            source = tar.extractfile(member)
+            if source is None:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(member.mode & 0o777)
 
 def _file_read_text(path: Path) -> str:
     return path.read_text() if path.exists() else ""
@@ -120,8 +144,9 @@ def _roxctl_assets_version() -> str:
     Regras:
       1) Se ROXCTL_VERSION for 'X.Y.Z' (sem 'v'), usa direto.
       2) Se ROXCTL_VERSION começa com 'v', remove o 'v' e usa 'X.Y.Z'.
-      3) Se for 'latest', varre páginas de doc conhecidas e extrai o primeiro assets/X.Y.Z/bin/Linux/roxctl.
-      4) Fallbacks estáticos se nada for encontrado.
+      3) Se for 'latest', consulta o índice oficial do mirror e seleciona a
+         maior versão semântica disponível.
+      4) Falha de forma fechada se o mirror não puder ser resolvido.
     """
     v = os.getenv("ROXCTL_VERSION", "latest").strip()
     # 1/2) versão explícita
@@ -129,24 +154,19 @@ def _roxctl_assets_version() -> str:
     if m:
         return m.group(1)
 
-    # 3) tentar extrair da doc (ordem do mais novo para o mais antigo)
-    doc_tracks = [
-        "4.8","4.7","4.6","4.5","4.4","4.3","4.2","4.1","4.0",
-        "3.74","3.73","3.72","3.71","3.70","3.69",
-    ]
-    pat = re.compile(r"/rhacs/assets/(\d+\.\d+\.\d+)/bin/Linux/roxctl")
-    for track in doc_tracks:
-        url = f"https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/{track}/html/roxctl_cli/installing-the-roxctl-cli-1"
-        try:
-            html = _fetch_text(url)
-            m = pat.search(html)
-            if m:
-                return m.group(1)
-        except Exception:
-            continue
+    # 3) índice oficial, sem depender de uma versão fixa da documentação.
+    try:
+        html = _fetch_text("https://mirror.openshift.com/pub/rhacs/assets/")
+        versions = set(re.findall(r'href="(\d+\.\d+\.\d+)/"', html))
+        if versions:
+            return max(versions, key=lambda item: tuple(int(part) for part in item.split(".")))
+    except Exception:
+        pass
 
-    # 4) fallbacks conservadores (conhecidos na doc)
-    return "4.4.8"  # fallback padrão; alternativos: "4.2.5", "3.71.3"
+    raise RuntimeError(
+        "❌ Não foi possível resolver a versão mais recente do roxctl. "
+        "Defina ROXCTL_VERSION ou use a versão fixada em versions.lock.json."
+    )
 
 # =========================
 # OC (OpenShift Client)
@@ -189,31 +209,30 @@ def _select_oc_artifact(filenames: list[str], arch: str) -> str | None:
     return None
 
 def install_oc():
-    def _oc_runs() -> bool:
+    def _oc_current_version() -> Optional[str]:
         try:
-            subprocess.check_output([str(Path(DEST_DIR) / "oc"), "version", "--client"],
-                                    env=os.environ, stderr=subprocess.STDOUT)
-            return True
-        except OSError:
-            return False
+            output = subprocess.check_output(
+                [str(Path(DEST_DIR) / "oc"), "version", "--client", "-o", "json"],
+                env=os.environ,
+                stderr=subprocess.STDOUT,
+            )
+            data = json.loads(output)
+            return data.get("releaseClientVersion") or data.get("clientVersion", {}).get("gitVersion")
         except Exception:
-            return False
+            return None
 
     oc_path = Path(DEST_DIR) / "oc"
     if oc_path.exists():
-        if _oc_runs():
-            print(f"🆗 oc já está instalado em {oc_path}.")
+        current = _oc_current_version()
+        desired = OC_VERSION.removeprefix("v")
+        if current and OC_VERSION.lower() != "latest" and current.removeprefix("v") == desired:
+            print(f"🆗 oc já está na versão fixada ({current}).")
             try:
                 run("oc version --client")
             except Exception:
                 pass
             return
-        else:
-            print("⚠️ 'oc' existente é incompatível (provável arquitetura incorreta). Removendo para reinstalar...")
-            try:
-                oc_path.unlink()
-            except Exception as e:
-                raise RuntimeError(f"❌ Não foi possível remover o 'oc' inválido: {e}")
+        print(f"ℹ️ Atualizando oc (atual={current or 'inválido'}, desejado={OC_VERSION}).")
 
     base = _oc_base_url(OC_VERSION)
     checksum_sources = [
@@ -277,16 +296,12 @@ def install_oc():
             raise FileNotFoundError("❌ Arquivo 'oc' não encontrado no pacote extraído.")
 
         oc_dest.parent.mkdir(parents=True, exist_ok=True)
-        if oc_dest.exists():
-            oc_dest.unlink()
-        shutil.move(str(oc_src), str(oc_dest))
+        os.replace(oc_src, oc_dest)
         os.chmod(oc_dest, 0o755)
         print(f"✅ 'oc' instalado em {oc_dest}")
 
         if kubectl_src.exists() and not shutil.which("kubectl"):
-            if kubectl_dest.exists():
-                kubectl_dest.unlink()
-            shutil.move(str(kubectl_src), str(kubectl_dest))
+            os.replace(kubectl_src, kubectl_dest)
             os.chmod(kubectl_dest, 0o755)
             print(f"✅ 'kubectl' (bundle OC) instalado em {kubectl_dest}")
         else:
@@ -711,18 +726,14 @@ def install_clusteradm():
         print(f"✅ clusteradm {desired} instalado em {dest}")
 
     # versão pode não existir em algumas builds — usa help como fallback
-    run("clusteradm version || clusteradm --help")
+    try:
+        run(["clusteradm", "version"])
+    except subprocess.CalledProcessError:
+        run(["clusteradm", "--help"])
 
 # =========================
 # roxctl (ACS)
 # =========================
-def _roxctl_urls(arch: str) -> Tuple[str, Optional[str]]:
-    # Mirror oficial RHACS; nomes de asset costumam ser 'roxctl-linux' + '.sha256'
-    base = f"https://mirror.openshift.com/pub/rhacs/{'x86_64' if arch=='amd64' else arch}/"
-    bin_url = urljoin(base, "roxctl-linux")
-    sha_url = urljoin(base, "roxctl-linux.sha256")
-    return bin_url, sha_url
-
 def install_roxctl():
     arch = _detect_arch()  # não influencia o path (Linux/roxctl), mas mantemos para logs
     assets_ver = _roxctl_assets_version()
@@ -777,6 +788,52 @@ def install_roxctl():
         run("roxctl version")
     except subprocess.CalledProcessError:
         print("⚠️ roxctl instalado; versão não pôde ser exibida (sem endpoint). Use 'roxctl --help' para smoke test.")
+
+# =========================
+# yq (mikefarah/yq)
+# =========================
+def _yq_desired_version() -> str:
+    if YQ_VERSION.lower() == "latest":
+        data = json.loads(_fetch_text("https://api.github.com/repos/mikefarah/yq/releases/latest"))
+        return data["tag_name"]
+    return YQ_VERSION if YQ_VERSION.startswith("v") else f"v{YQ_VERSION}"
+
+def install_yq():
+    existing = shutil.which("yq")
+    if existing:
+        output = subprocess.check_output(["yq", "--version"], env=os.environ, text=True)
+        match = re.search(r"v\d+\.\d+\.\d+", output)
+        current = match.group(0) if match else None
+        desired = _yq_desired_version()
+        if YQ_VERSION.lower() != "latest" and current == desired:
+            print(f"🆗 yq já está na versão fixada ({current}).")
+            return
+        print(f"ℹ️ Atualizando yq (atual={current or 'desconhecido'}, desejado={desired}).")
+
+    desired = _yq_desired_version()
+    arch = _detect_arch()
+    filename = f"yq_linux_{arch}"
+    release_url = f"https://github.com/mikefarah/yq/releases/download/{desired}"
+
+    with tempfile.TemporaryDirectory(prefix="yq-install-") as tmpd:
+        tmpd = Path(tmpd)
+        binary = tmpd / filename
+        download_file(f"{release_url}/{filename}", binary)
+        checksums = _fetch_text(f"{release_url}/checksums")
+        expected = _extract_checksum_for(checksums, filename)
+        if not expected:
+            raise RuntimeError(f"❌ Checksum SHA256 não encontrado para {filename}.")
+        actual = _sha256sum(binary)
+        if actual.lower() != expected.lower():
+            raise RuntimeError(f"❌ SHA256 inválido do yq. Esperado {expected}, obtido {actual}")
+
+        dest = Path(DEST_DIR) / "yq"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(binary), str(dest))
+        os.chmod(dest, 0o755)
+        print(f"✅ yq {desired} instalado em {dest}")
+
+    run("yq --version")
 
 # =========================
 # Autocomplete Zsh e Bash
@@ -859,29 +916,66 @@ def setup_autocompletion():
             print(f"🆗 Já presente no .bashrc: {line}")
 
 # =========================
-# Dependências opcionais (Fedora)
+# Dependências de sistema (Fedora e Debian/Ubuntu)
 # =========================
 def install_dependencies():
-    try:
-        print("📦 Instalando dependências de sistema (opcional)...")
-        run("sudo dnf -y install zsh podman buildah skopeo || true")
-    except Exception:
-        print("🛈 Skipping dependências (não críticas).")
+    print(f"📦 Instalando dependências ({'WSL' if _is_wsl() else 'Linux nativo'})...")
+    if shutil.which("dnf"):
+        run(["sudo", "dnf", "-y", "install", "zsh", "podman", "buildah", "skopeo", "jq", "yq"])
+    elif shutil.which("apt-get"):
+        run(["sudo", "apt-get", "update"])
+        run(["sudo", "apt-get", "install", "-y", "zsh", "podman", "buildah", "skopeo", "jq"])
+    else:
+        print("⚠️ Gerenciador não suportado; as CLIs standalone ainda serão instaladas.")
 
 # =========================
 # Main
 # =========================
-def main():
+INSTALLERS = {
+    "oc": install_oc,
+    "kubectl": install_kubectl,
+    "argocd": install_argocd,
+    "helm": install_helm,
+    "tkn": install_tkn,
+    "clusteradm": install_clusteradm,
+    "roxctl": install_roxctl,
+    "yq": install_yq,
+}
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Instalador reproduzível de CLIs OpenShift/Kubernetes")
+    parser.add_argument("--only", nargs="+", choices=INSTALLERS)
+    parser.add_argument("--latest", action="store_true", help="ignora o lockfile e resolve versões mais recentes")
+    parser.add_argument("--dry-run", action="store_true", help="mostra o plano sem modificar o sistema")
+    parser.add_argument("--skip-system-packages", action="store_true")
+    return parser
+
+def main(argv: Optional[list[str]] = None):
+    global DRY_RUN
+    args = _parser().parse_args(argv)
+    DRY_RUN = args.dry_run
+    if args.latest:
+        for name in (
+            "OC_VERSION", "KUBECTL_VERSION", "ARGOCD_VERSION", "HELM_VERSION",
+            "TKN_VERSION", "CLUSTERADM_VERSION", "ROXCTL_VERSION", "YQ_VERSION",
+        ):
+            globals()[name] = "latest"
+
+    selected = args.only or list(INSTALLERS)
+    if DRY_RUN:
+        print(f"🔎 Destino: {DEST_DIR}")
+        print(f"🔎 Ferramentas: {', '.join(selected)}")
+        print("🔎 Versões:", json.dumps({name: globals()[f"{name.upper()}_VERSION"] for name in selected}, indent=2))
+        if not args.skip_system_packages:
+            print("🔎 Dependências de sistema seriam verificadas/instaladas.")
+        return
+
     Path(DEST_DIR).mkdir(parents=True, exist_ok=True)
-    install_dependencies()
+    if not args.skip_system_packages:
+        install_dependencies()
     ensure_path_exports()
-    install_oc()
-    install_kubectl()
-    install_argocd()
-    install_helm()
-    install_tkn()
-    install_clusteradm()
-    install_roxctl()
+    for name in selected:
+        INSTALLERS[name]()
     setup_autocompletion()
 
     print(f"\n🔎 Verificação final:")
@@ -892,6 +986,8 @@ def main():
     print(f" - tkn:        {shutil.which('tkn')}")
     print(f" - clusteradm: {shutil.which('clusteradm')}")
     print(f" - roxctl:     {shutil.which('roxctl')}")
+    print(f" - jq:         {shutil.which('jq')}")
+    print(f" - yq:         {shutil.which('yq')}")
     print("✅ Ferramentas instaladas e autocomplete configurado. Abra um novo terminal ou rode `source ~/.zshrc`/`source ~/.bashrc`.")
 
 if __name__ == "__main__":

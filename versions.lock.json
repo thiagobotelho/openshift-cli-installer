@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "tools": {
+    "oc": "4.22.3",
+    "kubectl": "v1.36.2",
+    "argocd": "v3.4.4",
+    "helm": "v4.2.2",
+    "tkn": "v0.45.0",
+    "clusteradm": "v1.3.1",
+    "roxctl": "4.11.0",
+    "yq": "v4.47.1"
+  }
+}

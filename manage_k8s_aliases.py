@@ -3,12 +3,11 @@
 
 import json
 import os
-import re
 import socket
 import sys
-from getpass import getpass
 from pathlib import Path
 from typing import Dict, Any
+from urllib.parse import urlparse
 
 HOME = Path.home()
 ZSH_ALIASES = HOME / ".zsh_aliases"
@@ -33,6 +32,7 @@ def load_profiles() -> Dict[str, Any]:
 
 def save_profiles(cfg: Dict[str, Any]):
     CONF_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+    CONF_FILE.chmod(0o600)
 
 def ensure_rc_sources():
     for rc, al in [(ZSHRC, ZSH_ALIASES), (BASHRC, BASH_ALIASES)]:
@@ -53,10 +53,8 @@ def tcp_reachable(host: str, port: int, timeout: float = 5.0) -> bool:
         return False
 
 def parse_host_port_from_url(url: str) -> tuple[str, int]:
-    m = re.match(r"^https?://([^/:]+)(?::(\d+))?", url)
-    host = m.group(1) if m else ""
-    port = int(m.group(2)) if (m and m.group(2)) else 6443
-    return host, port
+    parsed = urlparse(url)
+    return parsed.hostname or "", parsed.port or 6443
 
 def prompt_profile() -> Dict[str, Any]:
     print("➕ Criando perfil de cluster")
@@ -64,7 +62,6 @@ def prompt_profile() -> Dict[str, Any]:
     if not name:
         print("Nome inválido."); sys.exit(2)
     server = input("API server (ex.: https://api.cluster:6443): ").strip()
-    user_default = input("Usuário padrão (ex.: kubeadmin) [kubeadmin]: ").strip() or "kubeadmin"
     insecure = input("Skip TLS verif? (y/N) [N]: ").strip().lower().startswith("y")
     kubeconfig = input(f"Caminho KUBECONFIG p/ este perfil [~/.kube/config-{name}]: ").strip() or f"~/.kube/config-{name}"
     kubeconfig = str(Path(os.path.expanduser(kubeconfig)))
@@ -75,7 +72,6 @@ def prompt_profile() -> Dict[str, Any]:
     return {
         "name": name,
         "server": server,
-        "user_default": user_default,
         "insecure": insecure,
         "kubeconfig": kubeconfig,
         "argocd_server": argocd_server or None,
@@ -149,19 +145,16 @@ def render_shell_block(cfg: Dict[str, Any]) -> str:
     for name, p in cfg["profiles"].items():
         server = p["server"]
         insecure = "true" if p["insecure"] else "false"
-        user_default = p["user_default"]
         kubeconfig = p["kubeconfig"]
 
         lines += [
             f'# ---- Perfil: {name}',
             f'use-kcfg-{name}()' + ' { export KUBECONFIG="' + kubeconfig + '"; echo "KUBECONFIG=$KUBECONFIG"; }',
             '',
-            # oc login com senha (prompt seguro no shell)
+            # Login padrão via OAuth/browser; nenhuma senha é passada em argv.
             f'oc-login-{name}()' + ' {',
             '  OC_BIN="${OC_BIN:-$HOME/.local/bin/oc}"',
-            f'  local user="${{1:-{user_default}}}"',
-            '  printf "Senha (%s): " "$user" 1>&2; stty -echo; read -r pw; stty echo; printf "\\n" 1>&2',
-            f'  "$OC_BIN" login -u "$user" -p "$pw" --server="{server}" {"--insecure-skip-tls-verify=true" if insecure=="true" else ""} --kubeconfig="' + kubeconfig + '"',
+            f'  "$OC_BIN" login --web --server="{server}" {"--insecure-skip-tls-verify=true" if insecure=="true" else ""} --kubeconfig="' + kubeconfig + '"',
             '}',
 
             # oc login com token (env/arg/prompt)
@@ -189,8 +182,7 @@ def render_shell_block(cfg: Dict[str, Any]) -> str:
             lines += [
                 f'argocd-login-{name}()' + ' {',
                 '  local user="${1:-admin}"',
-                '  printf "Senha ArgoCD (%s): " "$user" 1>&2; stty -echo; read -r pw; stty echo; printf "\\n" 1>&2',
-                f'  argocd login "{host}" --username "$user" --password "$pw" --insecure',
+                f'  argocd login "{host}" --username "$user" --insecure',
                 '}',
 
             ]
@@ -210,6 +202,7 @@ def write_managed_block(aliases_path: Path, block: str):
         new = (old.rstrip() + "\n\n" + block) if old.strip() else block
     tmp = aliases_path.with_suffix(aliases_path.suffix + ".tmp")
     tmp.write_text(new)
+    tmp.chmod(0o600)
     tmp.replace(aliases_path)
     print(f"✅ Bloco gerenciado atualizado em {aliases_path}")
 
@@ -241,7 +234,7 @@ def usage():
 Dica:
   Depois do 'apply', use:
     use-kcfg-<perfil>       # exporta KUBECONFIG daquele perfil
-    oc-login-<perfil>       # login via usuário/senha (prompt seguro)
+    oc-login-<perfil>       # login OAuth pelo navegador
     oc-login-token-<perfil> # login via token (param/ENV OCP_TOKEN)
     skopeo-login-internal-<perfil>
     argocd-login-<perfil>   # se configurado no perfil
