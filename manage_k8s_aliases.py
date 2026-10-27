@@ -16,7 +16,6 @@ ZSHRC = HOME / ".zshrc"
 BASHRC = HOME / ".bashrc"
 
 CONF_DIR = HOME / ".config" / "k8s-aliases"
-CONF_DIR.mkdir(parents=True, exist_ok=True)
 CONF_FILE = CONF_DIR / "profiles.json"
 
 SENTINEL_BEGIN = "# >>> k8s-aliases (managed) >>>"
@@ -31,6 +30,7 @@ def load_profiles() -> Dict[str, Any]:
     return {"default": None, "profiles": {}}
 
 def save_profiles(cfg: Dict[str, Any]):
+    CONF_DIR.mkdir(parents=True, exist_ok=True)
     CONF_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     CONF_FILE.chmod(0o600)
 

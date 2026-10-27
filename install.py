@@ -148,7 +148,7 @@ def _roxctl_assets_version() -> str:
          maior versão semântica disponível.
       4) Falha de forma fechada se o mirror não puder ser resolvido.
     """
-    v = os.getenv("ROXCTL_VERSION", "latest").strip()
+    v = ROXCTL_VERSION.strip()
     # 1/2) versão explícita
     m = re.fullmatch(r"v?(\d+\.\d+\.\d+)", v)
     if m:
