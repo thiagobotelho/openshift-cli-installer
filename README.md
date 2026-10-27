@@ -279,3 +279,7 @@ Distribuído sob a licença MIT. Consulte [LICENSE](LICENSE).
 - Mudanças: [CHANGELOG.md](CHANGELOG.md)
 - Contribuição: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Plataformas: [SUPPORT.md](SUPPORT.md)
+
+## Aprender a configuração
+
+Consulte o [guia comentado](docs/APRENDIZADO.md) para entender componentes, escolhas, testes positivos/negativos e reversão.

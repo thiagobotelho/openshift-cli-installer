@@ -46,6 +46,22 @@ class InstallerTests(unittest.TestCase):
             with patch.object(installer, "ROXCTL_VERSION", "latest"):
                 self.assertEqual(installer._roxctl_assets_version(), "4.11.0")
 
+    def test_roxctl_fixed_version_never_queries_mirror(self):
+        with patch.object(installer, "ROXCTL_VERSION", "4.11.0"):
+            with patch.object(installer, "_fetch_text") as fetch:
+                self.assertEqual(installer._roxctl_assets_version(), "4.11.0")
+                fetch.assert_not_called()
+
+    def test_roxctl_explicit_version_prefix(self):
+        with patch.object(installer, "ROXCTL_VERSION", "v4.11.0"):
+            self.assertEqual(installer._roxctl_assets_version(), "4.11.0")
+
+    def test_roxctl_latest_unavailable_fails_closed(self):
+        with patch.object(installer, "ROXCTL_VERSION", "latest"):
+            with patch.object(installer, "_fetch_text", side_effect=OSError("offline")):
+                with self.assertRaises(RuntimeError):
+                    installer._roxctl_assets_version()
+
     def test_ipv6_api_url(self):
         self.assertEqual(
             aliases.parse_host_port_from_url("https://[2001:db8::1]:6443"),
